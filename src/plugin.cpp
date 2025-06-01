@@ -44,7 +44,19 @@ void pluginSetup()
     dprintf("pluginSetup(pluginHandle: %d)\n", pluginHandle);
 }
 
-std::uint8_t* PatternScan(duint module, const char* signature)
+std::vector<std::uint8_t> _ReadModule(duint module) {
+    IMAGE_DOS_HEADER dosHeader{};
+    DbgMemRead(module, &dosHeader, sizeof(IMAGE_DOS_HEADER));
+    IMAGE_NT_HEADERS ntHeaders{};
+    DbgMemRead(module + dosHeader.e_lfanew, &ntHeaders, sizeof(IMAGE_NT_HEADERS));
+
+    auto sizeOfImage = ntHeaders.OptionalHeader.SizeOfImage;
+    std::vector<std::uint8_t> scanBytes(sizeOfImage);
+    DbgMemRead(module, scanBytes.data(), sizeOfImage);
+    return scanBytes;
+}
+
+std::uint8_t* PatternScan(duint base, std::vector<std::uint8_t> scanBytes, const char* signature)
 {
     static auto pattern_to_byte = [](const char* pattern) {
         auto bytes = std::vector<int>{};
@@ -64,36 +76,22 @@ std::uint8_t* PatternScan(duint module, const char* signature)
         }
         return bytes;
         };
-    IMAGE_DOS_HEADER dosHeader{};
-    DbgMemRead(module, &dosHeader, sizeof(IMAGE_DOS_HEADER));
-    IMAGE_NT_HEADERS ntHeaders{};
-    
-    DbgMemRead(module + dosHeader.e_lfanew, &ntHeaders, sizeof(IMAGE_NT_HEADERS));
 
-    auto sizeOfImage = ntHeaders.OptionalHeader.SizeOfImage;
-    //dprintf("SIZE: %d\n", sizeOfImage);
     auto patternBytes = pattern_to_byte(signature);
-
-    std::vector<std::uint8_t> scanBytes(sizeOfImage);
-    DbgMemRead(module, scanBytes.data(), sizeOfImage);
-    //auto scanBytes = (module);
 
     auto s = patternBytes.size();
     auto d = patternBytes.data();
 
-    for (auto i = 0ul; i < sizeOfImage - s; ++i) {
+    for (auto i = 0ul; i < scanBytes.size() - s; ++i) {
         bool found = true;
         for (auto j = 0ul; j < s; ++j) {
-            //BYTE shit;
-            //DbgMemRead(scanBytes+i+j, &shit, sizeof(BYTE));
-            //if (shit != d[j] && d[j] != (BYTE)-1) {
             if (scanBytes[i + j] != d[j] && d[j] != -1) {
                 found = false;
                 break;
             }
         }
         if (found) {
-            return (std::uint8_t*)(module + i);
+            return (std::uint8_t*)(base + i);
         }
     }
     return nullptr;
@@ -101,6 +99,7 @@ std::uint8_t* PatternScan(duint module, const char* signature)
 
 std::uint8_t* SearchSig(const char* sig)
 {
+    // TODO: Non ida sigs
     char modname[256] = { 0 };
     SELECTIONDATA sel;
     GuiSelectionGet(GUI_DISASSEMBLY, &sel);
@@ -108,10 +107,97 @@ std::uint8_t* SearchSig(const char* sig)
     auto base = DbgModBaseFromName(modname);
     dprintf("Searching for %s in %s (%p)\n", sig, modname, base);
     
-    return PatternScan(base, sig);
+    return PatternScan(base, _ReadModule(base), sig);
+}
+
+std::string getInstrHexWildCarded(ZydisDisassembledInstruction& instruction, const uint8_t* buffer, size_t length) {
+    std::ostringstream hexStream;
+    for (uint8_t i = 0; i < instruction.info.length; ++i)
+    {
+        bool isWildcard = false;
+        for (uint8_t opIdx = 0; opIdx < instruction.info.operand_count; ++opIdx)
+        {
+            const auto& operand = instruction.operands[opIdx];
+            if (operand.visibility != ZYDIS_OPERAND_VISIBILITY_EXPLICIT)
+                continue;
+            if (operand.type == ZYDIS_OPERAND_TYPE_IMMEDIATE)
+            {
+                if (i >= operand.imm.offset / 8 &&
+                    i < (operand.imm.offset + operand.size) / 8)
+                {
+                    isWildcard = true;
+                    break;
+                }
+            }
+
+            if (operand.type == ZYDIS_OPERAND_TYPE_MEMORY)
+            {
+                if (operand.mem.disp.size > 0)
+                {
+                    if (i >= operand.mem.disp.offset / 8 &&
+                        i < (operand.mem.disp.offset + operand.mem.disp.size) / 8)
+                    {
+                        isWildcard = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (isWildcard)
+            hexStream << "? ";
+        else
+            hexStream << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(buffer[i]) << " ";
+
+    }
+
+    return hexStream.str();
 }
 
 std::string CreateSig()
 {
-    return "TODO";
+    SELECTIONDATA sel;
+    char modname[256] = { 0 };
+
+    GuiSelectionGet(GUI_DISASSEMBLY, &sel);
+
+
+    DbgGetModuleAt(sel.start, modname);
+    auto base = DbgModBaseFromName(modname);
+
+    auto moduleBuff = _ReadModule(base);
+
+    auto addr = sel.start;
+
+    int size = 14;
+
+    std::vector<BYTE> instrBuff(size);
+
+    while (true) {
+        // TODO: I think its better to read from moduleBuff
+        DbgMemRead(addr, instrBuff.data(), size);
+        ZyanUSize offset = 0;
+        ZydisDisassembledInstruction instruction;
+
+        std::ostringstream res;
+
+        auto currentAddr = addr;
+
+        while (ZYAN_SUCCESS(ZydisDisassembleIntel(ZYDIS_MACHINE_MODE_LONG_64, currentAddr, instrBuff.data() + offset, instrBuff.size() - offset, &instruction)))
+        {
+            res << getInstrHexWildCarded(instruction, instrBuff.data() + offset, instruction.info.length);
+            offset += instruction.info.length;
+            currentAddr += instruction.info.length;
+            if (offset >= instrBuff.size())
+                break;
+        }
+
+        std::string result = res.str();
+        if (!result.empty() && result.back() == ' ')
+            result.pop_back();
+        if (PatternScan(base, moduleBuff, result.c_str()) == reinterpret_cast<std::uint8_t*>(sel.start))
+            return result;
+        size += 14;
+        instrBuff.resize(size);
+    }
+    
 }

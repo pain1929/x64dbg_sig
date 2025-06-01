@@ -12,7 +12,7 @@ include-before = [
 [fetch-content.x64dbg]
 url = "https://sourceforge.net/projects/x64dbg/files/snapshots/snapshot_2023-06-10_18-05.zip"
 sha1 = "04468bd61fb36d6b10d17f342f03ef12f5b2ce62"
-include-after = ["cmake/x64dbg.cmake"]
+include-after = ["cmake/x64dbg.cmake", "cmake/zydis.cmake"]
 
 [template.plugin]
 type = "shared"
@@ -24,3 +24,4 @@ sources = [
     "src/*.cpp",
     "src/*.h",
 ]
+link-libraries = ["Zydis"]

@@ -45,6 +45,7 @@ FetchContent_Declare(x64dbg
 FetchContent_MakeAvailable(x64dbg)
 
 include("cmake/x64dbg.cmake")
+include("cmake/zydis.cmake")
 
 # Target: sigarette
 set(sigarette_SOURCES
@@ -59,4 +60,8 @@ x64dbg_plugin(sigarette)
 
 target_sources(sigarette PRIVATE ${sigarette_SOURCES})
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${sigarette_SOURCES})
+
+target_link_libraries(sigarette PUBLIC
+	Zydis
+)
 

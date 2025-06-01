@@ -46,7 +46,7 @@ PLUG_EXPORT void CBMENUENTRY(CBTYPE cb_type, PLUG_CB_MENUENTRY* info) {
     }
     case CREATE_SIG:
     {
-        dprintf("Sig: %p\n", CreateSig());
+        dprintf("Sig: %s\n", CreateSig().c_str());
     }
     default:
         break;
