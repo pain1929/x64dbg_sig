@@ -10,47 +10,6 @@
 // Command use the same signature as main in C
 // argv[0] contains the full command, after that are the arguments
 // NOTE: arguments are separated by a COMMA (not space like WinDbg)
-static bool cbExampleCommand(int argc, char** argv)
-{
-    if (argc < 3)
-    {
-        dputs("Usage: " PLUGIN_NAME "expr1, expr2");
-
-        // Return false to indicate failure (used for scripting)
-        return false;
-    }
-
-    // Helper function for parsing expressions
-    // Reference: https://help.x64dbg.com/en/latest/introduction/Expressions.html
-    auto parseExpr = [](const char* expression, duint& value)
-    {
-        bool success = false;
-        value = DbgEval(expression, &success);
-        if (!success)
-            dprintf("Invalid expression '%s'\n", expression);
-        return success;
-    };
-
-    duint a = 0;
-    if (!parseExpr(argv[1], a))
-        return false;
-
-    duint b = 0;
-    if (!parseExpr(argv[2], b))
-        return false;
-
-    // NOTE: Look at x64dbg-sdk/pluginsdk/bridgemain.h for a list of available functions.
-    // The Script:: namespace and DbgFunctions()->... are also good to check out.
-
-    // Do something meaningful with the arguments
-    duint result = a + b;
-    dprintf("$result = 0x%p + 0x%p = 0x%p\n", a, b, result);
-
-    // The $result variable can be used for scripts
-    DbgValToString("$result", result);
-
-    return true;
-}
 
 // Initialize your plugin data here.
 bool pluginInit(PLUG_INITSTRUCT* initStruct)
@@ -58,8 +17,7 @@ bool pluginInit(PLUG_INITSTRUCT* initStruct)
     dprintf("pluginInit(pluginHandle: %d)\n", pluginHandle);
 
     // Prefix of the functions to call here: _plugin_register
-    _plugin_registercommand(pluginHandle, PLUGIN_NAME, cbExampleCommand, true);
-
+    //_plugin_registercommand(pluginHandle, PLUGIN_NAME, cbExampleCommand, true);
     // Return false to cancel loading the plugin.
     return true;
 }
@@ -81,6 +39,79 @@ void pluginStop()
 void pluginSetup()
 {
     // Prefix of the functions to call here: _plugin_menu
-
+    _plugin_menuaddentry(hMenuDisasm, SEARCH_SIG, "Sig Search");
+    _plugin_menuaddentry(hMenuDisasm, CREATE_SIG, "Sig Create");
     dprintf("pluginSetup(pluginHandle: %d)\n", pluginHandle);
+}
+
+std::uint8_t* PatternScan(duint module, const char* signature)
+{
+    static auto pattern_to_byte = [](const char* pattern) {
+        auto bytes = std::vector<int>{};
+        auto start = const_cast<char*>(pattern);
+        auto end = const_cast<char*>(pattern) + strlen(pattern);
+
+        for (auto current = start; current < end; ++current) {
+            if (*current == '?') {
+                ++current;
+                if (*current == '?')
+                    ++current;
+                bytes.push_back(-1);
+            }
+            else {
+                bytes.push_back(strtoul(current, &current, 16));
+            }
+        }
+        return bytes;
+        };
+    IMAGE_DOS_HEADER dosHeader{};
+    DbgMemRead(module, &dosHeader, sizeof(IMAGE_DOS_HEADER));
+    IMAGE_NT_HEADERS ntHeaders{};
+    
+    DbgMemRead(module + dosHeader.e_lfanew, &ntHeaders, sizeof(IMAGE_NT_HEADERS));
+
+    auto sizeOfImage = ntHeaders.OptionalHeader.SizeOfImage;
+    //dprintf("SIZE: %d\n", sizeOfImage);
+    auto patternBytes = pattern_to_byte(signature);
+
+    std::vector<std::uint8_t> scanBytes(sizeOfImage);
+    DbgMemRead(module, scanBytes.data(), sizeOfImage);
+    //auto scanBytes = (module);
+
+    auto s = patternBytes.size();
+    auto d = patternBytes.data();
+
+    for (auto i = 0ul; i < sizeOfImage - s; ++i) {
+        bool found = true;
+        for (auto j = 0ul; j < s; ++j) {
+            //BYTE shit;
+            //DbgMemRead(scanBytes+i+j, &shit, sizeof(BYTE));
+            //if (shit != d[j] && d[j] != (BYTE)-1) {
+            if (scanBytes[i + j] != d[j] && d[j] != -1) {
+                found = false;
+                break;
+            }
+        }
+        if (found) {
+            return (std::uint8_t*)(module + i);
+        }
+    }
+    return nullptr;
+}
+
+std::uint8_t* SearchSig(const char* sig)
+{
+    char modname[256] = { 0 };
+    SELECTIONDATA sel;
+    GuiSelectionGet(GUI_DISASSEMBLY, &sel);
+    DbgGetModuleAt(sel.start, modname);
+    auto base = DbgModBaseFromName(modname);
+    dprintf("Searching for %s in %s (%p)\n", sig, modname, base);
+    
+    return PatternScan(base, sig);
+}
+
+std::string CreateSig()
+{
+    return "TODO";
 }

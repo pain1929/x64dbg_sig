@@ -29,6 +29,30 @@ PLUG_EXPORT bool plugstop()
     return true;
 }
 
+PLUG_EXPORT void CBMENUENTRY(CBTYPE cb_type, PLUG_CB_MENUENTRY* info) {
+    switch (info->hEntry)
+    {
+    case SEARCH_SIG:
+    {
+        char input[256] = { 0 };
+        if (GuiGetLineWindow("Enter IDA sig", input)) {
+            auto res = SearchSig(input);
+            if (res != 0)
+                dprintf("Found: %p\n", res);
+            else
+                dprintf("Not found\n");
+        }
+        break;
+    }
+    case CREATE_SIG:
+    {
+        dprintf("Sig: %p\n", CreateSig());
+    }
+    default:
+        break;
+    }
+}
+
 PLUG_EXPORT void plugsetup(PLUG_SETUPSTRUCT* setupStruct)
 {
     hwndDlg = setupStruct->hwndDlg;

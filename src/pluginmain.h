@@ -1,5 +1,6 @@
 #pragma once
 
+// #define PLUGIN_NAME "sigarette"
 // Plugin information
 #ifndef PLUGIN_NAME
 #error You need to define PLUGIN_NAME
