@@ -1,0 +1,4 @@
+set(ZYDIS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(ZYDIS_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+
+add_subdirectory(deps/zydis)
