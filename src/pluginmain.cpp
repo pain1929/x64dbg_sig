@@ -37,10 +37,13 @@ PLUG_EXPORT void CBMENUENTRY(CBTYPE cb_type, PLUG_CB_MENUENTRY* info) {
         char input[256] = { 0 };
         if (GuiGetLineWindow("Enter IDA sig", input)) {
             auto res = SearchSig(input);
-            if (res != 0)
-                dprintf("Found: %p\n", res);
-            else
-                dprintf("Not found\n");
+            if (res) {
+                char cmd[256]{};
+                sprintf_s(cmd, "disasm %p", res); // 在反汇编窗口跳转
+                DbgCmdExecDirect(cmd);
+            } else {
+                MessageBoxExA(hwndDlg , "error !!!!" , "title" , MB_OK | MB_ICONERROR, 0);
+            }
         }
         break;
     }
